@@ -1,0 +1,80 @@
+Figure 10.2 Basic Buffer Overflow Stack Values
+The problem with this code exists because the traditional C library gets() function does not include any checking on the amount of data
+copied. It will read the next line of text from the program’s standard input up until the first newline5 character occurs and copy it into the
+ supplied buffer followed by the NULL terminator used with C strings.6 If more than seven characters are present on the input line, when read in they will (along with the terminating NULL character) require more room than is available in the str2 buffer. Consequently, the
+extra characters will proceed to overwrite the values of the adjacent variable, str1 in this case. For example, if the input line contained
+EVILINPUTVALUE , the result will be that str1 will be overwritten with
+the characters TVALUE , and str2 will use not only the eight
+characters allocated to it, but seven more from str1 as well. This can be seen in the second example run in Figure 10.1b   . The overflow has resulted in corruption of a variable not directly used to save the input. Because these strings are not equal, valid also retains the
+value FALSE . Further, if 16 or more characters were input, additional memory locations would be overwritten.
+5The newline (NL) or linefeed (LF) character is the standard end of line terminator for UNIX systems, and hence for C, and is the character with the ASCII value 0x0a.
+6Strings in C are stored in an array of characters and terminated with the NULL character, which has the ASCII value 0x00. Any remaining locations in the array are undefined, and typically contain whatever value was previously saved in that area of memory. This can be clearly seen in the value of the variable str2 in the “Before” column of Figure 10.2 .
+The preceding example illustrates the basic behavior of a buffer overflow. At its simplest, any unchecked copying of data into a buffer could result in corruption of adjacent memory locations, which may be other variables, or, as we will see next, possibly program control addresses and data. Even this simple example could be taken further. Knowing the structure of the code processing it, an attacker
+
+ could arrange for the overwritten value to set the value in str1 equal
+to the value placed in str2 , resulting in the subsequent comparison
+succeeding. For example, the input line could be the string BADINPUTBADINPUT . This results in the comparison succeeding, as
+shown in the third of the three example program runs in Figure 10.1b   and illustrated in Figure 10.2   , with the values of the local variables before and after the call to gets() . Note also the
+terminating NULL for the input string was written to the memory location following str1 . This means the flow of control in the
+program will continue as if the expected tag was found, when in fact the tag read was something completely different. This will almost certainly result in program behavior that was not intended. How serious is this will depend very much on the logic in the attacked program. One dangerous possibility occurs if instead of being a tag, the values in these buffers were an expected and supplied password needed to access privileged features. If so, the buffer overflow provides the attacker with a means of accessing these features without actually knowing the correct password.
+To exploit any type of buffer overflow, such as those we have illustrated here, the attacker needs:
+1. To identify a buffer overflow vulnerability in some program that can be triggered using externally sourced data under the attackers control, and
+2. To understand how that buffer will be stored in the processes memory, and hence the potential for corrupting adjacent
+
+ memory locations and potentially altering the flow of execution of the program.
+Identifying vulnerable programs may be done by inspection of program source, tracing the execution of programs as they process oversized input, or using tools such as fuzzing, which we will discuss in Section 11.2   , to automatically identify potentially vulnerable programs. What the attacker does with the resulting corruption of memory varies considerably, depending on what values are being overwritten. We will explore some of the alternatives in the following sections.
+Before exploring buffer overflows further, it is worth considering just how the potential for their occurrence developed and why programs are not necessarily protected from such errors. To understand this, we need to briefly consider the history of programming languages and the fundamental operation of computer systems. At the basic machine level, all of the data manipulated by machine instructions executed by the computer processor are stored in either the processor’s registers or in memory. The data are simply arrays of bytes. Their interpretation is entirely determined by the function of the instructions accessing them. Some instructions will treat the bytes as representing integer values, others as addresses of data or instructions, and others as arrays of characters. There is nothing intrinsic in the registers or memory that indicates that some locations have an interpretation different from others. Thus, the responsibility is placed on the assembly language programmer to ensure that the correct interpretation is placed on any saved data value. The use of
+
+ assembly (and hence machine) language programs gives the greatest access to the resources of the computer system, but at the highest cost and responsibility in coding effort for the programmer.
+At the other end of the abstraction spectrum, modern high-level programming languages such as Java, ADA, Python, and many others have a very strong notion of the type of variables and what constitutes permissible operations on them. Such languages do not suffer from buffer overflows because they do not permit more data to be saved into a buffer than it has space for. The higher levels of abstraction, and safe usage features of these languages, mean programmers can focus more on solving the problem at hand and less on managing details of interactions with variables. But this flexibility and safety comes at a cost in resource use, both at compile time, and in additional code that must executed at run time to impose checks such as that on buffer limits. The distance from the underlying machine language and architecture also means that access to some instructions and hardware resources is lost. This limits their usefulness in writing code, such as device drivers, that must interact with such resources.
+In between these extremes are languages such as C and its derivatives, which have many modern high-level control structures and data type abstractions but which still provide the ability to access and manipulate memory data directly. The C programming language was designed by Dennis Ritchie, at Bell Laboratories, in the early 1970s. It was used very early to write the UNIX operating system and many of the applications that run on it. Its continued success
+
+ was due to its ability to access low-level machine resources while still having the expressiveness of high-level control and data structures and because it was fairly easily ported to a wide range of processor architectures. It is worth noting that UNIX was one of the earliest operating systems written in a high-level language. Up until then (and indeed in some cases for many years after), operating systems were typically written in assembly language, which limited them to a specific processor architecture. Unfortunately, the ability to access low-level machine resources means that the language is susceptible to inappropriate use of memory contents. This was aggravated by the fact that many of the common and widely used library functions, especially those relating to input and processing of strings, failed to perform checks on the size of the buffers being used. Because these functions were common and widely used, and because UNIX and derivative operating systems such as Linux are widely deployed, this means there is a large legacy body of code using these unsafe functions, which are thus potentially vulnerable to buffer overflows. We return to this issue when we discuss countermeasures for managing buffer overflows.
+
+ Stack Buffer Overflows
+A stack buffer overflow occurs when the targeted buffer is located on the stack, usually as a local variable in a function’s stack frame. This form of attack is also referred to as stack smashing. Stack buffer overflow attacks have been exploited since first being seen in the wild in the Morris Internet Worm in 1988. The exploits it used included an unchecked buffer overflow resulting from the use of the C gets() function in the fingerd daemon. The publication by Aleph
+One (Elias Levy) of details of the attack and how to exploit it [LEVY96] hastened further use of this technique. As indicated in the chapter introduction, stack buffer overflows are still being exploited, as new vulnerabilities continue to be discovered in widely deployed software.
+
+ FUNCTION CALL MECHANISMS
+To better understand how buffer overflows work, we first take a brief digression into the mechanisms used by program functions to manage their local state on each call. When one function calls another, at the very least it needs somewhere to save the return address so the called function can return control when it finishes. Aside from that, it also needs locations to save the parameters to be passed in to the called function, and also possibly to save register values that it wishes to continue using when the called function returns. All of these data are usually saved on the stack in a structure known as a stack frame. The called function also needs locations to save its local variables, somewhere different for every call so it is possible for a function to call itself either directly or indirectly. This is known as a recursive function call.7 In most modern languages, including C, local variables are also stored in the function’s stack frame. One further piece of information then needed is some means of chaining these frames together, so as a function is exiting it can restore the stack frame for the calling function before transferring control to the return address. Figure 10.3   illustrates such a stack frame structure. The general process of one function P calling another function Q can be summarized as follows. The calling function P:
+7Though early programming languages such as Fortran did not do this, and as a consequence Fortran functions could not be called recursively.
+
+  Figure 10.3 Example Stack Frame with Functions P and Q
+1. Pushes the parameters for the called function onto the stack (typically in reverse order of declaration).
+2. Executes the call instruction to call the target function, which pushes the return address onto the stack.
+The called function Q:
+3. Pushes the current frame pointer value (which points to the calling routine’s stack frame) onto the stack.
+4. Sets the frame pointer to be the current stack pointer value (i.e., the address of the old frame pointer), which now
+
+ identifies the new stack frame location for the called function.
+5. Allocates space for local variables by moving the stack pointer
+down to leave sufficient room for them.
+6. Runs the body of the called function.
+7. As it exits, it first sets the stack pointer back to the value of
+the frame pointer (effectively discarding the space used by
+local variables).
+8. Pops the old frame pointer value (restoring the link to the
+calling routine’s stack frame).
+9. Executes the return instruction which pops the saved address
+off the stack and returns control to the calling function.
+Lastly, the calling function:
+10. Pops the parameters for the called function off the stack.
+11. Continues execution with the instruction following the function
+call.
+As has been indicated before, the precise implementation of these steps is language, compiler, and processor architecture dependent. However, something similar will usually be found in most cases. In addition, not specified here are steps involving saving registers used by the calling or called functions. These generally happen either before the parameter pushing if done by the calling function, or after the allocation of space for local variables if done by the called function. In either case, this does not affect the operation of buffer overflows we will discuss next. More detail on function call and return
+
+ mechanisms and the structure and use of stack frames may be found in [STAL16b].
+
+ STACK OVERFLOW EXAMPLE
+With the preceding background, consider the effect of the basic buffer overflow introduced in Section 10.1   . Because the local variables are placed below the saved frame pointer and return address, the possibility exists of exploiting a local buffer variable overflow vulnerability to overwrite the values of one or both of these key function linkage values. Note that the local variables are usually allocated space in the stack frame in order of declaration, growing down in memory with the top of stack. Compiler optimization can potentially change this, so the actual layout will need to be determined for any specific program of interest. This possibility of overwriting the saved frame pointer and return address forms the core of a stack overflow attack.
+At this point, it is useful to step back and take a somewhat wider view of a running program, and the placement of key regions such as the program code, global data, heap, and stack. When a program is run, the operating system typically creates a new process for it. The process is given its own virtual address space, with a general structure as shown in Figure 10.4   . This consists of the contents of the executable program file (including global data, relocation table, and actual program code segments) near the bottom of this address space, space for the program heap to then grow upward from above the code, and room for the stack to grow down from near the middle (if room is reserved for kernel space in the upper half) or top. The stack frames we discussed are hence placed one below another in the stack area, as the stack grows downward through memory. We
+
+ return to discuss some of the other components later. Further details on the layout of a process address space may be found in [STAL16c].
+
+ Figure 10.4 Program Loading into Process Memory
+
+ To illustrate the operation of a classic stack overflow, consider the C function given in Figure 10.5a   . It contains a single local variable, the buffer inp . This is saved in the stack frame for this function,
+located somewhere below the saved frame pointer and return address, as shown in Figure 10.6   . This hello function (a version
+of the classic Hello World program) prompts for a name, which it then reads into the buffer inp using the unsafe gets() library
+routine. It then displays the value read using the printf() library
+routine. As long as a small value is read in, there will be no problems and the program calling this function will run successfully, as shown in the first of the example program runs in Figure 10.5b   . However, if the data input is too much, as shown in the second example program of Figure 10.5b   , then the data extend beyond the end of the buffer and ends up overwriting the saved frame pointer and return address with garbage values (corresponding to the binary representation of the characters supplied). Then, when the function attempts to transfer control to the return address, it typically jumps to an illegal memory location, resulting in a Segmentation Fault and the abnormal termination of the program, as shown. Just supplying random input like this, leading typically to the program crashing, demonstrates the basic stack overflow attack. And since the program has crashed, it can no longer supply the function or service for which it was running. At its simplest, then, a stack overflow can result in some form of denial-of-service attack on a system.
